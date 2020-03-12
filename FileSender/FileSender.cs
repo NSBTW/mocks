@@ -78,10 +78,6 @@ namespace FileSender
         [SetUp]
         public void SetUp()
         {
-            // Постарайтесь вынести в SetUp всё неспецифическое конфигурирование так,
-            // чтобы в конкретных тестах осталась только специфика теста,
-            // без конфигурирования "обычного" сценария работы
-
             file = new File("someFile", new byte[] {1, 2, 3});
             signedContent = new byte[] {1, 7};
 
@@ -107,53 +103,121 @@ namespace FileSender
                 .SkippedFiles.Should().BeEmpty();
         }
 
-        [Test]
-        [Ignore("Not implemented")]
-        public void Skip_WhenBadFormat()
+        [TestCase("2.1")]
+        [TestCase("1.1")]
+        [TestCase("3.0")]
+        public void Skip_WhenBadFormat(string format)
         {
-            throw new NotImplementedException();
+            var document = new Document(file.Name, file.Content, DateTime.Now, format);
+            A.CallTo(() => recognizer.TryRecognize(file, out document))
+                .Returns(true);
+            A.CallTo(() => cryptographer.Sign(document.Content, certificate))
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent))
+                .Returns(true);
+
+            fileSender.SendFiles(new[] {file}, certificate)
+                .SkippedFiles.Length.Should().Be(1);
+        }
+
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(3)]
+        [TestCase(4)]
+        public void Skip_WhenOlderThanAMonth(int monthCount)
+        {
+            var time = DateTime.Now.AddMonths(-monthCount).AddDays(-1);
+            var document = new Document(file.Name, file.Content, time, "3.1");
+            A.CallTo(() => recognizer.TryRecognize(file, out document))
+                .Returns(true);
+            A.CallTo(() => cryptographer.Sign(document.Content, certificate))
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent))
+                .Returns(true);
+
+            fileSender.SendFiles(new[] {file}, certificate)
+                .SkippedFiles.Length.Should().Be(1);
+        }
+
+        [TestCase(10)]
+        [TestCase(15)]
+        [TestCase(20)]
+        [TestCase(28)]
+        public void Send_WhenYoungerThanAMonth(int daysCount)
+        {
+            var time = DateTime.Now.AddDays(-daysCount);
+            var document = new Document(file.Name, file.Content, time, "3.1");
+            A.CallTo(() => recognizer.TryRecognize(file, out document))
+                .Returns(true);
+            A.CallTo(() => cryptographer.Sign(document.Content, certificate))
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent))
+                .Returns(true);
+
+            fileSender.SendFiles(new[] {file}, certificate)
+                .SkippedFiles.Length.Should().Be(0);
         }
 
         [Test]
-        [Ignore("Not implemented")]
-        public void Skip_WhenOlderThanAMonth()
-        {
-            throw new NotImplementedException();
-        }
-
-        [Test]
-        [Ignore("Not implemented")]
-        public void Send_WhenYoungerThanAMonth()
-        {
-            throw new NotImplementedException();
-        }
-
-        [Test]
-        [Ignore("Not implemented")]
         public void Skip_WhenSendFails()
         {
-            throw new NotImplementedException();
+            var document = new Document(file.Name, file.Content, DateTime.Now, "3.1");
+            A.CallTo(() => recognizer.TryRecognize(file, out document))
+                .Returns(true);
+            A.CallTo(() => cryptographer.Sign(document.Content, certificate))
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent))
+                .Returns(false);
+            fileSender.SendFiles(new[] {file}, certificate)
+                .SkippedFiles.Length.Should().Be(1);
         }
 
         [Test]
-        [Ignore("Not implemented")]
         public void Skip_WhenNotRecognized()
         {
-            throw new NotImplementedException();
+            var document = new Document(file.Name, file.Content, DateTime.Now, "3.1");
+            A.CallTo(() => recognizer.TryRecognize(file, out document))
+                .Returns(false);
+            A.CallTo(() => cryptographer.Sign(document.Content, certificate))
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent))
+                .Returns(true);
+            fileSender.SendFiles(new[] {file}, certificate)
+                .SkippedFiles.Length.Should().Be(1);
         }
 
         [Test]
-        [Ignore("Not implemented")]
         public void IndependentlySend_WhenSeveralFilesAndSomeAreInvalid()
         {
-            throw new NotImplementedException();
+            var file1 = new File("someFile1", new byte[] {1, 2, 3});
+            var file2 = new File("someFile2", new byte[] {1, 2, 3});
+            var file3 = new File("someFile3", new byte[] {1, 2, 3});
+            var document1 = new Document(file1.Name, file.Content, DateTime.Now, "3.1");
+            var document2 = new Document(file2.Name, file.Content, DateTime.Now, "1.1");
+            var document3 = new Document(file3.Name, file.Content, DateTime.Now, "3.1");
+            A.CallTo(() => recognizer.TryRecognize(file1, out document1)).Returns(true);
+            A.CallTo(() => recognizer.TryRecognize(file2, out document2)).Returns(true);
+            A.CallTo(() => recognizer.TryRecognize(file3, out document3)).Returns(true);
+            A.CallTo(() => cryptographer.Sign(null, certificate)).WithAnyArguments()
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent)).WithAnyArguments()
+                .Returns(true);
+            fileSender.SendFiles(new[] {file1, file2, file3}, certificate)
+                .SkippedFiles.Length.Should().Be(1);
         }
 
         [Test]
-        [Ignore("Not implemented")]
         public void IndependentlySend_WhenSeveralFilesAndSomeCouldNotSend()
         {
-            throw new NotImplementedException();
+            var document = new Document(file.Name, file.Content, DateTime.Now, "3.1");
+            A.CallTo(() => recognizer.TryRecognize(file, out document))
+                .Returns(true);
+            A.CallTo(() => cryptographer.Sign(document.Content, certificate))
+                .Returns(signedContent);
+            A.CallTo(() => sender.TrySend(signedContent))
+                .ReturnsNextFromSequence(true, false, true, true);
+            fileSender.SendFiles(new[] {file, file, file, file}, certificate)
+                .SkippedFiles.Length.Should().Be(1);
         }
     }
 }
